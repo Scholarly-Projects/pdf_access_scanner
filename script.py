@@ -223,5 +223,5 @@ def main():
     print(f"Report saved to: {csv_path}")
 
 
-if __name __ == "__main__":
+if __name__ == "__main__":
     main()

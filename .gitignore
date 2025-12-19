@@ -1,0 +1,27 @@
+# Ignore the output folder (A) containing CSV reports
+/A/
+
+# macOS system files
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+
+# Python virtual environment
+.venv/
+venv/
+env/
+
+# Python bytecode and cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDE specific files (optional but recommended)
+.vscode/
+.idea/
+*.swp
+*.swo
