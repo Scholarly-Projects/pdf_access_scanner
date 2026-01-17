@@ -1,7 +1,7 @@
 import csv
 import sys
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 import argparse
 import re
 
@@ -67,6 +67,8 @@ def find_figures_and_check_alt(struct_elem, pdf) -> dict:
             item_status = find_figures_and_check_alt(item, pdf)
             status['found_figures'] = status['found_figures'] or item_status['found_figures']
             status['all_have_alt'] = status['all_have_alt'] and item_status['all_have_alt']
+            if not status['all_have_alt']:
+                return status  # Early exit
 
     elif isinstance(struct_elem, pikepdf.Dictionary):
         role = struct_elem.get("/S")
@@ -74,12 +76,10 @@ def find_figures_and_check_alt(struct_elem, pdf) -> dict:
             role_str = str(role).lstrip('/').upper()
             if role_str == "FIGURE":
                 status['found_figures'] = True
-                # Check for Alt text on the Figure element itself
                 alt_text = struct_elem.get("/Alt")
                 if not alt_text or not str(alt_text).strip():
                     status['all_have_alt'] = False
-                    # We can stop early if we found a figure without alt text
-                    return status
+                    return status  # Early exit
         
         # Recurse into children
         for key in ["/K", "/Kids"]:
@@ -88,19 +88,21 @@ def find_figures_and_check_alt(struct_elem, pdf) -> dict:
                 status['found_figures'] = status['found_figures'] or item_status['found_figures']
                 status['all_have_alt'] = status['all_have_alt'] and item_status['all_have_alt']
                 if not status['all_have_alt']:
-                    return status # Early exit
+                    return status  # Early exit
     return status
 
 
 def assess_pdf_accessibility(pdf_path: str) -> dict:
     """
     Returns a dict with "Pass"/"Fail"/"N/A" for each criterion.
+    Now includes 'contains_images' and adjusts 'alt_text' logic accordingly.
     """
     result = {
-        "alt_text": "Fail",
+        "contains_images": "N/A",
+        "alt_text": "N/A",
         "metadata": "Fail",
         "tags": "Fail",
-        "header_order": "N/A", # Default, will be updated
+        "header_order": "N/A",
     }
 
     try:
@@ -113,32 +115,33 @@ def assess_pdf_accessibility(pdf_path: str) -> dict:
 
             # --- Metadata (C) - Specifically looking for a Title ---
             title_found = False
-            # 1. Check DocInfo first
             if pdf.docinfo and '/Title' in pdf.docinfo and pdf.docinfo.get('/Title'):
                 title_found = True
-            # 2. If not in DocInfo, check XMP metadata
             if not title_found and "/Metadata" in root:
                 try:
                     xmp_data = root["/Metadata"].read_bytes()
                     xmp_str = xmp_data.decode('utf-8', errors='ignore')
-                    # Simple regex search for dc:title
                     if re.search(r'<dc:title[^>]*>.*?</dc:title>', xmp_str, re.DOTALL | re.IGNORECASE):
                         title_found = True
                 except Exception:
-                    pass # Ignore XMP parsing errors
+                    pass
             result["metadata"] = "Pass" if title_found else "Fail"
 
-            # --- Alt Text (B) - Simplified to Pass/Fail ---
+            # --- Alt Text & Image Detection (B) ---
             if is_tagged:
                 struct_root = root["/StructTreeRoot"]
                 figure_status = find_figures_and_check_alt(struct_root, pdf)
-                # If no figures were found, or all figures had alt text, it's a pass.
-                result["alt_text"] = "Pass" if (not figure_status['found_figures'] or figure_status['all_have_alt']) else "Fail"
+                result["contains_images"] = "Yes" if figure_status['found_figures'] else "No"
+                if figure_status['found_figures']:
+                    result["alt_text"] = "Pass" if figure_status['all_have_alt'] else "Fail"
+                else:
+                    result["alt_text"] = "N/A"
             else:
-                # Untagged PDFs cannot have proper, semantic alt text
-                result["alt_text"] = "Fail"
+                # Untagged PDFs cannot reliably indicate presence of semantic figures
+                result["contains_images"] = "N/A"
+                result["alt_text"] = "N/A"
 
-            # --- Header Ordering (E) - Conditional logic ---
+            # --- Header Ordering (E) ---
             if is_tagged:
                 try:
                     struct_root = root["/StructTreeRoot"]
@@ -147,9 +150,8 @@ def assess_pdf_accessibility(pdf_path: str) -> dict:
                     result["header_order"] = "Pass" if is_valid else "Fail"
                 except Exception as e:
                     print(f"  Warning: Could not parse headings for {pdf_path}: {e}")
-                    result["header_order"] = "Fail" # Treat parsing errors as a failure
+                    result["header_order"] = "Fail"
             else:
-                # Per the requirement, if tags are "Fail", header ordering is "N/A"
                 result["header_order"] = "N/A"
 
     except Exception as e:
@@ -166,7 +168,6 @@ def scan_pdfs(root_folder: str) -> List[Tuple[str, dict]]:
         print(f"Error: Folder '{root_folder}' does not exist.")
         return results
 
-    # Get all PDF files and sort them alphabetically before processing
     pdf_files = sorted(list(root_path.rglob("*.pdf")))
 
     for pdf_file in pdf_files:
@@ -186,9 +187,9 @@ def create_csv_report(results: List[Tuple[str, dict]], folder_path: str) -> str:
 
     with open(csv_path, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
-        # REVISED: Updated headers to be lowercase as requested
         writer.writerow([
             "Filename",
+            "contains images",
             "alt text",
             "metadata",
             "tags",
@@ -197,6 +198,7 @@ def create_csv_report(results: List[Tuple[str, dict]], folder_path: str) -> str:
         for filename, r in results:
             writer.writerow([
                 filename,
+                r["contains_images"],
                 r["alt_text"],
                 r["metadata"],
                 r["tags"],
@@ -212,7 +214,7 @@ def main():
     args = parser.parse_args()
 
     print(f"Scanning: {args.folder_path}")
-    print("Checking: Alt Text (in Figures), Metadata (Title), Tagging, and (if tagged) Heading order")
+    print("Checking: Contains Images, Alt Text (if applicable), Metadata (Title), Tagging, and (if tagged) Heading order")
     print()
 
     results = scan_pdfs(args.folder_path)
