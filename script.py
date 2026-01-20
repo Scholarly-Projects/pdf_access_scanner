@@ -13,10 +13,6 @@ except ImportError:
 
 
 def extract_heading_levels_from_struct_tree(obj, pdf) -> list:
-    """
-    Recursively traverse the structure tree and collect heading levels in document order.
-    This version is more robust against malformed structures.
-    """
     levels = []
     if not obj or obj is None:
         return levels
@@ -39,9 +35,6 @@ def extract_heading_levels_from_struct_tree(obj, pdf) -> list:
 
 
 def validate_heading_order(levels: list) -> bool:
-    """
-    Validate heading order: the sequence of heading levels must never increase by more than 1.
-    """
     if not levels:
         return True  # No headings = trivially valid
 
@@ -54,10 +47,6 @@ def validate_heading_order(levels: list) -> bool:
 
 
 def find_figures_and_check_alt(struct_elem, pdf) -> dict:
-    """
-    Recursively find Figure elements and check for alt text.
-    Returns a dict: {'found_figures': bool, 'all_have_alt': bool}
-    """
     status = {'found_figures': False, 'all_have_alt': True}
     if not struct_elem or struct_elem is None:
         return status
@@ -93,10 +82,6 @@ def find_figures_and_check_alt(struct_elem, pdf) -> dict:
 
 
 def assess_pdf_accessibility(pdf_path: str) -> dict:
-    """
-    Returns a dict with "Pass"/"Fail"/"N/A" for each criterion.
-    Now includes 'contains_images' and adjusts 'alt_text' logic accordingly.
-    """
     result = {
         "contains_images": "N/A",
         "alt_text": "N/A",
